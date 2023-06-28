@@ -98,7 +98,8 @@ def calc_solution_set_radius(net, trainloader, testloader, tau=1.0, max_radius=1
 # Train, Test, Evaluate
 #######################################
 
-def train(net, trainloader)
+def train(net, trainloader):
+    raise NotImplementedError()
 
 
 
