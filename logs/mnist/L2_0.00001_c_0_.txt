@@ -1,0 +1,20 @@
+Train loss: 0.0145, Test loss: 0.0365, Test acc: 99.02
+L1 norm: 8898.4023, L2 norm: 585.2787
+Train loss: 0.0142, Test loss: 0.0357, Test acc: 99.03
+L1 norm: 8877.6572, L2 norm: 582.4061
+Train loss: 0.0138, Test loss: 0.0276, Test acc: 99.18
+L1 norm: 8884.4648, L2 norm: 581.4420
+Train loss: 0.0153, Test loss: 0.0350, Test acc: 99.10
+L1 norm: 8846.3184, L2 norm: 577.6021
+Train loss: 0.0139, Test loss: 0.0366, Test acc: 99.09
+L1 norm: 8878.7314, L2 norm: 583.0598
+Train loss: 0.0140, Test loss: 0.0271, Test acc: 99.21
+L1 norm: 8870.9297, L2 norm: 587.2346
+Train loss: 0.0142, Test loss: 0.0315, Test acc: 99.05
+L1 norm: 8855.5908, L2 norm: 589.7392
+Train loss: 0.0142, Test loss: 0.0329, Test acc: 99.10
+L1 norm: 8839.4043, L2 norm: 582.7723
+Train loss: 0.0144, Test loss: 0.0308, Test acc: 99.17
+L1 norm: 8876.5723, L2 norm: 585.5522
+Train loss: 0.0151, Test loss: 0.0351, Test acc: 98.97
+L1 norm: 8888.3604, L2 norm: 592.8931
