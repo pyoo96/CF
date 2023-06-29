@@ -14,10 +14,14 @@ II) Can we find enforce flat minima constraint on the above $\theta$?
 - scmpoint.py: Shell-like wrapper for point_exp.py.
 - utils.py: Declaration of complex functions.
 
-Usage Example
+### Usage Example
 
 Train a model with L1 and L2 coefficients of 1e-5 and 1e-4 centered at $\overrightarrow{\text{10}}$.
 
 ```
 $ python scmpoint.py --gpu 1 --cpu 8 --L1 0.00001 --L2 0.0001 --center 10
 ```
+
+Change path however necessary.
+
+Read and modify codes wherever necessary.
