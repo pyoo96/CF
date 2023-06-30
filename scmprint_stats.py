@@ -16,14 +16,22 @@ parser.add_argument('--b', default='', type=str)
 parser.add_argument('--center-point', '--center', default='0', type=str)
 parser.add_argument('--sleep-hour', default='12', type=str)
 parser.add_argument('--overwrite', action='store_true')
+parser.add_argument('--dataset', default='mnist', choices=['mnist'], type=str)
+parser.add_argument('--tau', default=1.0, type=float)
+parser.add_argument('--cores', action='store_true', help='Summarize only the important statistics')
+parser.add_argument('--debug', action='store_true')
 
 args = parser.parse_args()
+
+if (args.cores):
+    raise NotImplementedError("TBD")
+
 
 cpu_list = "%d-%d" % (args.cpu, args.cpu + args.num_cpu)
 
 prefix = "CUDA_VISIBLE_DEVICES=%d taskset --cpu-list %s " % (args.gpu, cpu_list)
 
-config = "" # "weights/%s/" % (args.dataset)
+config = "weights/%s/" % (args.dataset)
 if (args.L1):
     config += "L1_%s_" % (args.L1)
 if (args.L2):
@@ -43,8 +51,16 @@ if (not os.path.exists(config)):
 suffix = ""
 suffix += " --reps %d" % (args.reps)
 suffix += " --dir-name %s" % (config)
+suffix += " --dataset %s" % (args.dataset)
+suffix += " --tau %.2f" % (args.tau)
+
 if (args.overwrite):
     suffix += " --overwrite"
+if (args.debug):
+    suffix += " --debug"
+
+if (args.debug):
+    print("************************************Debugging Mode****************************************")
 
 command = prefix + "python print_basic_stats.py" + suffix
 print(command)

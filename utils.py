@@ -2,18 +2,19 @@ import torch
 import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
+import copy
 
 
 #######################################
 # Perturbation Related Functions
 #######################################
 
-def add_perturbation(net, radius):
+def add_perturbation(net, radius, device='cuda'):
     """
     Add random perturbation to the network with L2-norm being equal to radius.
     """
-    rand_orient = torch.randn(sum(p.numel() for p in net.parameters()), device=net.device)
-    denom = random_orient.norm() / radius
+    rand_orient = torch.randn(sum(p.numel() for p in net.parameters()), device=device)
+    denom = rand_orient.norm() / radius
     rand_vector = rand_orient / denom
     start_idx = 0
     for param in net.parameters():
@@ -24,19 +25,19 @@ def add_perturbation(net, radius):
         param.data += perturbation
 
 
-def calc_perturbed_loss(net, radius, num_samples, criterion, trainloader, testloader=None, detailed=False):
+def calc_perturbed_loss(net, radius, num_samples, criterion, trainloader, testloader=None, detailed=False, pbar=None):
     """
     Calculates the average loss value L(θ + Δ) w.r.t. random perturbation |Δ| = radius.
     """
     device = next(net.parameters()).device
-    theta = net.state_dict()
+    theta = copy.deepcopy(net.state_dict())
     train_losses, test_losses = [], []
     train_accs, test_accs = [], []
 
-    for _ in num_samples:
-        add_perturbation(net)
-
+    for _ in range(num_samples):
         with torch.no_grad():
+            add_perturbation(net, radius, device)
+
             train_loss, train_acc = evaluate(net, trainloader, criterion, report_acc=detailed)
             train_losses.append(train_loss)
             train_accs.append(train_acc)
@@ -48,6 +49,10 @@ def calc_perturbed_loss(net, radius, num_samples, criterion, trainloader, testlo
         
         net.load_state_dict(theta)
 
+        if (pbar):
+            pbar.update()
+
+
     train_losses, test_losses, train_accs, test_accs = \
             np.array(train_losses), np.array(test_losses), np.array(train_accs), np.array(test_accs)
 
@@ -58,8 +63,8 @@ def calc_perturbed_loss(net, radius, num_samples, criterion, trainloader, testlo
                 test_losses.mean(), test_losses.std(), test_losses.mean(), test_losses.std())
 
 
-def calc_solution_set_radius(net, trainloader, testloader, tau=1.0, max_radius=100., num_samples=50, num_iter=10, \
-                                criterion=nn.CrossEntropyLoss()):
+def calc_solution_set_radius(net, trainloader, testloader=None, tau=1.0, max_radius=100., num_samples=50, num_iter=10, \
+                                criterion=nn.CrossEntropyLoss(), use_tqdm=False, verbose=False):
     """
     Return |Δ| such that E[L(θ + Δ)] ≅ τ.
 
@@ -69,18 +74,37 @@ def calc_solution_set_radius(net, trainloader, testloader, tau=1.0, max_radius=1
     """
     min_radius, min_loss, max_loss = 0., None, None
 
+    pbar = None if not use_tqdm else tqdm(range(int(num_samples * (num_iter + 1))))
+
     min_loss, _ = evaluate(net, trainloader, criterion, report_acc=False)
-    max_loss, _ = calc_perturbed_loss(net, max_radius, num_samples, criterion, trainloader)
+    max_loss, _ = calc_perturbed_loss(net, max_radius, num_samples, criterion, trainloader, testloader, pbar=pbar)
 
-    mid_radius, min_loss = None, None
+    mid_radius, mid_loss = None, None
 
-    for _ in range(num_iter):
+    anomaly_counter = 0
+
+    for i in range(num_iter):
         mid_radius = (min_radius + max_radius) / 2.0
-        mid_loss = calc_perturbed_loss(net, mid_radius, num_samples, criterion, trainloader)
+        mid_loss, _ = calc_perturbed_loss(net, mid_radius, num_samples, criterion, trainloader, testloader, pbar=pbar)
+        if (verbose):
+            # (radius, loss) format
+            print("[%d/%d] (τ = %.2f) lower, upper, mid = (r=%.3f, l=%.3f), (r=%.3f, l=%.3f), (r=%.3f, l=%.3f)" % \
+                    (i + 1, num_iter, tau, min_radius, min_loss, max_radius, max_loss, mid_radius, mid_loss))
         if (mid_loss < tau):
+            if (mid_loss < min_loss):
+                anomaly_counter += 1
             min_radius, min_loss = mid_radius, mid_loss
         else:
+            if (mid_loss > max_loss):
+                anomaly_counter += 1
             max_radius, max_loss = mid_radius, mid_loss
+
+    if (anomaly_counter > 0):
+        print("%d incident(s) with mid_loss < min_loss or mid_loss > high_loss have been occured." % (anomaly_counter))
+        print("Consider increasing num_samples to get more accurate estimate of the expected loss.")
+
+    if (pbar):
+        pbar.close()
 
     return (min_radius + max_radius) / 2.0
 

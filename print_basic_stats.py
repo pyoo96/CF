@@ -8,14 +8,19 @@ import numpy as np
 import pandas as pd
 import os
 from tqdm import tqdm
+from utils import *
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir-name', '--dir', '--path', type=str)
 parser.add_argument('--reps', type=int)
-parser.add_argument('--batch-size', default=1024, type=int)
+parser.add_argument('--batch-size', default=2**14, type=int)
 parser.add_argument('--overwrite', action='store_true')
 parser.add_argument('--center-point', default=0, type=float)
+parser.add_argument('--dataset', default='mnist', choices=['mnist'], type=str)
+parser.add_argument('--tau', default=1.0, type=float)
+parser.add_argument('--cores', action='store_true', help='Summarize only the important statistics')
+parser.add_argument('--debug', action='store_true')
 
 args = parser.parse_args()
 
@@ -36,6 +41,44 @@ testset = datasets.MNIST('/home/weebum/data/MNIST', download=True, train=False, 
 testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=True)
 
 path_prefix = args.dir_name
+
+# DEBUGGING CODE BLOCK---------------------------------------------
+"""
+Find argmin(5n) s.t. 5n <= 100 and calc_solution_set_radius(5n) == calc_solution_set_radius(5n+5)
+"""
+if (args.debug):
+    model_name = path_prefix + '/0.pt'
+    net.load_state_dict(torch.load(model_name))
+
+    prev_radius = -1.0
+    for num_samples in range(5, 101, 5):
+        current_radius = calc_solution_set_radius(net, trainloader, tau=args.tau, num_samples=num_samples, num_iter=10, use_tqdm=False, verbose=True)
+        print("num_samples: %d, prev_radius: %.3f, current_radius: %.3f" % (num_samples, prev_radius, current_radius))
+        if (prev_radius == current_radius):
+            print("argmin(5n): %d" % (num_samples - 5))
+            break
+        else:
+            prev_radius = current_radius
+    print ("argmin(5n): %d" % (num_samples - 5))
+    raise Exception("breakpoint")
+# -----------------------------------------------------------------
+
+radii = []
+
+for i in range(args.reps):
+    model_name = path_prefix + '/%d.pt' % (i)
+    print("Calculating the R(%.2f)'s radius w.r.t %s..." % (args.tau, model_name))
+    if (args.debug):
+        approx_radius = calc_solution_set_radius(net, trainloader, tau=args.tau, num_samples=50, num_iter=10, use_tqdm=True)
+        radii.append(approx_radius)
+        break
+    approx_radius = calc_solution_set_radius(net, trainloader, tau=args.tau, use_tqdm=True)
+    radii.append(approx_radius)
+
+radii = np.array(radii)
+
+raise Exception("breakpoint")
+
 train_losses, test_losses, test_accs, L1_distances, L2_distances = [], [], [], [], []
 for i in tqdm(range(args.reps)):
     net.load_state_dict(torch.load(path_prefix + '/%d.pt' % (i)))
