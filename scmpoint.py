@@ -23,6 +23,7 @@ parser.add_argument('--momentum', default=0.9, type=float)
 parser.add_argument('--print-freq', '--freq', default=10, type=int)
 parser.add_argument('--sleep-hour', default='24', type=str)
 parser.add_argument('--adjust-init', action='store_true')
+parser.add_argument('--optimizer', default='default', choices=['default', 'sam'], type=str)
 
 
 args = parser.parse_args()
@@ -36,6 +37,9 @@ if (args.cpu_only):
 
 config = "weights/%s/" % (args.dataset)
 conf_prefix_idx = len(config)
+if (args.optimizer != 'default'):
+    suffix += " --optimizer %s" % (args.optimizer)
+    config += "%s_" % (args.optimizer)
 if (args.L1):
     suffix += " --L1 %s" % (args.L1)
     config += "L1_%s_" % (args.L1)
@@ -72,6 +76,8 @@ start_time = time.time()
 for i in range(args.reps):
     save_pth = config + "/%d.pt" % (i)
     command = prefix + "python point_exp.py --model-name %s" % (save_pth) + suffix
+    if (i == 0):
+        command = prefix + "python point_exp.py --verbose --model-name %s" % (save_pth) + suffix
     print(command)
     os.system(command)
     if (i == 0):

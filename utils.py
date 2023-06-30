@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 import copy
+from torch.nn.modules.batchnorm import _BatchNorm
 
 
 #######################################
@@ -81,7 +82,7 @@ def calc_solution_set_radius(net, trainloader, testloader=None, tau=1.0, max_rad
 
     mid_radius, mid_loss = None, None
 
-    anomaly_counter = 0
+    anomaly_radii = []
 
     for i in range(num_iter):
         mid_radius = (min_radius + max_radius) / 2.0
@@ -92,15 +93,16 @@ def calc_solution_set_radius(net, trainloader, testloader=None, tau=1.0, max_rad
                     (i + 1, num_iter, tau, min_radius, min_loss, max_radius, max_loss, mid_radius, mid_loss))
         if (mid_loss < tau):
             if (mid_loss < min_loss):
-                anomaly_counter += 1
+                anomaly_radii.append(mid_radius)
             min_radius, min_loss = mid_radius, mid_loss
         else:
-            if (mid_loss > max_loss):
-                anomaly_counter += 1
+            if (mid_loss < min_loss):
+                anomaly_radii.append(mid_radius)
             max_radius, max_loss = mid_radius, mid_loss
 
-    if (anomaly_counter > 0):
-        print("%d incident(s) with mid_loss < min_loss or mid_loss > high_loss have been occured." % (anomaly_counter))
+    if (len(anomaly_radii) > 0):
+        print("%d incident(s) with mid_loss < min_loss or mid_loss > high_loss have been occured." % (len(anomaly_radii)))
+        print("radii = " + str(anomaly_radii))
         print("Consider increasing num_samples to get more accurate estimate of the expected loss.")
 
     if (pbar):
@@ -145,3 +147,27 @@ def evaluate(net, dataloader, criterion, report_acc=False):
 
         loss, acc = loss / len(dataloader), 100 * correct / (total + 1e-8)
         return (loss, acc)
+
+
+
+#######################################
+# Functions for SAM
+#######################################
+"""
+Codes from https://github.com/davda54/sam/blob/main/example/utility/bypass_bn.py.
+"""
+def disable_running_stats(model):
+    def _disable(module):
+        if isinstance(module, _BatchNorm):
+            module.backup_momentum = module.momentum
+            module.momentum = 0
+
+    model.apply(_disable)
+
+def enable_running_stats(model):
+    def _enable(module):
+        if isinstance(module, _BatchNorm) and hasattr(module, "backup_momentum"):
+            module.momentum = module.backup_momentum
+
+    model.apply(_enable)
+

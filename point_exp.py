@@ -5,6 +5,8 @@ from torchvision import datasets, transforms
 from models import SmallCNN
 import argparse
 from utils import *
+from sam.sam import SAM
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--cpu-only', action='store_true')
@@ -17,12 +19,14 @@ parser.add_argument('--weight-decay', default=0.0, type=float)
 parser.add_argument('--L1', default=0.0, type=float)
 parser.add_argument('--L2', default=0.0, type=float)
 parser.add_argument('--eps', default=0.0, type=float)
-parser.add_argument('--b', default=0.0, type=float)
+parser.add_argument('--b', default=0.0, type=float, help='b-flat minima')
 parser.add_argument('--cuda', action='store_true')
 parser.add_argument('--model-name', default='dummy.pth', type=str)
 parser.add_argument('--center-point', default=0, type=float)
 parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--print-freq', default=1, type=int)
+parser.add_argument('--num-workers', default=4, type=int)
+parser.add_argument('--optimizer', default='default', choices=['default', 'sam'], type=str)
 
 args = parser.parse_args()
 
@@ -33,15 +37,21 @@ transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize((0.5,), (0.5,))])
 
 trainset = datasets.MNIST('/home/weebum/data/MNIST', download=True, train=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True,
+        num_workers=args.num_workers, pin_memory=True, persistent_workers=True)
 
 testset = datasets.MNIST('/home/weebum/data/MNIST', download=True, train=False, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=True)
+testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False)
 
 # Model, loss function and optimizer
 net = SmallCNN()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(net.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
+optimizer = None
+if (args.optimizer == 'default'):
+    optimizer = torch.optim.SGD(net.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
+elif (args.optimizer == 'sam'):
+    base_optimizer = torch.optim.SGD
+    optimizer = SAM(net.parameters(), base_optimizer, lr=args.lr, momentum=args.momentum)
 
 device = "cuda" if not args.cpu_only else "cpu"
 net.to(device)
@@ -74,34 +84,68 @@ num_param = sum(p.numel() for p in net.parameters())
 
 
 # Train and test
-for epoch in range(args.epochs):
-    running_loss = 0
-    for images, labels in trainloader:
-        optimizer.zero_grad()
-        images, labels = images.to(device), labels.to(device)
-        perturb(net, args.b)
-        outputs = net(images)
-        loss = criterion(outputs, labels) + l1_reg(net) + l2_reg(net)
-        loss.backward()
-        optimizer.step()
-        enforce_box(net, args.eps)
+if (args.optimizer == 'default'):
+    for epoch in range(args.epochs):
+        running_loss = 0
+        for images, labels in trainloader:
+            optimizer.zero_grad()
+            images, labels = images.to(device), labels.to(device)
+            perturb(net, args.b)
+            outputs = net(images)
+            loss = criterion(outputs, labels) + l1_reg(net) + l2_reg(net)
+            loss.backward()
+            optimizer.step()
+            enforce_box(net, args.eps)
 
-        running_loss += loss.item()
+            running_loss += loss.item()
 
-    test_loss, correct, total = 0, 0, 0
-    with torch.no_grad():
-        for images, labels in testloader:
+        test_loss, correct, total = 0, 0, 0
+        with torch.no_grad():
+            for images, labels in testloader:
+                images, labels = images.to(device), labels.to(device)
+                outputs = net(images)
+                test_loss += criterion(outputs, labels).item()
+
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+
+        if (args.verbose and epoch % args.print_freq == 0):
+            print("[%d/%d] Train loss: %.4f, Test loss: %.4f, Test acc: %.2f" % (epoch + 1, args.epochs, running_loss / len(trainloader), test_loss / len(testloader), 100 * correct / total))
+
+elif (args.optimizer == 'sam'):
+    for epoch in range(args.epochs):
+        running_loss = 0
+        for images, labels in trainloader:
+            enable_running_stats(net)
             images, labels = images.to(device), labels.to(device)
             outputs = net(images)
-            test_loss += criterion(outputs, labels).item()
+            loss = criterion(outputs, labels) + l1_reg(net) + l2_reg(net)
+            running_loss += loss.item()
+            loss.backward()
+            optimizer.first_step(zero_grad=True)
 
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            disable_running_stats(net)
+            outputs = net(images)
+            loss = criterion(outputs, labels) + l1_reg(net) + l2_reg(net)
+            loss.backward()
+            optimizer.second_step(zero_grad=True)
+
+        test_loss, correct, total = 0, 0, 0
+        with torch.no_grad():
+            for images, labels in testloader:
+                images, labels = images.to(device), labels.to(device)
+                outputs = net(images)
+                test_loss += criterion(outputs, labels).item()
+
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
 
-    if (args.verbose and epoch % args.print_freq == 0):
-        print("[%d/%d] Train loss: %.4f, Test loss: %.4f, Test acc: %.2f" % (epoch + 1, args.epochs, running_loss / len(trainloader), test_loss / len(testloader), 100 * correct / total))
+        if (args.verbose and epoch % args.print_freq == 0):
+            print("[%d/%d] Train loss: %.4f, Test loss: %.4f, Test acc: %.2f" % (epoch + 1, args.epochs, running_loss / len(trainloader), test_loss / len(testloader), 100 * correct / total))
 
 print("Train loss: %.4f, Test loss: %.4f, Test acc: %.2f" % (running_loss / len(trainloader), test_loss / len(testloader), 100 * correct / total))
 
